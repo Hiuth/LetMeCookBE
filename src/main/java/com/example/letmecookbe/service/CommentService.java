@@ -136,12 +136,17 @@ public class CommentService {
     @Transactional
     @PreAuthorize("hasAuthority('DELETE_COMMENT')")
     public void deleteComment(String commentId) {
+        // Kiểm tra null trước khi xóa
         LikeComment likeComment = likedCommentRepository.findByCommentId(commentId);
-        likedCommentRepository.delete(likeComment);
+        if (likeComment != null) {
+            likedCommentRepository.delete(likeComment);
+        }
+
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMMENT_NOT_EXIST));
         commentRepository.delete(comment);
     }
+
 
     @PreAuthorize("hasAuthority('GET_COMMENT_BY_ACCOUNT_ID')")
     public Page<CommentResponse> getCommentsByAccountId(Pageable pageable) {
