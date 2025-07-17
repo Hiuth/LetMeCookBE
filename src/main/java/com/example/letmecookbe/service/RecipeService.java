@@ -180,9 +180,7 @@ public class RecipeService {
         if(!subCategoryRepository.existsById(id)){
             throw new AppException(ErrorCode.SUB_CATEGORY_NOT_EXIST);
         }
-
         Page<Recipe> recipePage = RecipeRepository.findRecipeBySubCategoryIdWithPagination(id, pageable);
-
         return recipePage
                 .map(recipe -> "APPROVED".equalsIgnoreCase(recipe.getStatus()) ? recipe : null)
                 .map(recipe -> recipe != null ? recipeMapper.toRecipeResponse(recipe) : null);
@@ -386,7 +384,7 @@ public class RecipeService {
 
     @PreAuthorize("hasAuthority('TRENDING_RECIPE')")
     public List<RecipeResponse> getTrendingRecipes(){
-        LocalDateTime lastWeek = LocalDateTime.now().minusWeeks(1); //trong khoảng 2 tuần
+        LocalDateTime lastWeek = LocalDateTime.now().minusWeeks(15); //trong khoảng 2 tuần
         List<Recipe> recipeList = RecipeRepository.findTrendingFavoriteRecipes(lastWeek);
         return recipeList.stream()
                 .map(recipeMapper::toRecipeResponse)
