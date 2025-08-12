@@ -11,6 +11,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -126,5 +127,26 @@ public class CommentController {
                 .message("Get total comment reports from Report entity successfully")
                 .result(count)
                 .build();
+    }
+
+    @GetMapping("/getCommentByAccount")
+    public ApiResponse<Page<CommentResponse>> getCommentByAccount(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size)
+    {
+        Pageable pageable = PageRequest.of(page, size);
+        ApiResponse<Page<CommentResponse>> response = new ApiResponse<>();
+        response.setMessage("Get all Comment by Account: ");
+        response.setResult(commentService.getCommentsByAccountId(pageable));
+        return response;
+    }
+
+    @GetMapping("/countCommentByAccount")
+    public ApiResponse<Integer> countCommentByAccount()
+    {
+        ApiResponse<Integer> response = new ApiResponse<>();
+        response.setMessage("Get total comment by Account: ");
+        response.setResult(commentService.countCommentAccount());
+        return response;
     }
 }

@@ -24,7 +24,6 @@ public class UserInfo {
     int height;
     int weight;
     int age;
-    LocalDate dob;
     String avatar;
 
     @ElementCollection(fetch = FetchType.LAZY)
@@ -33,10 +32,8 @@ public class UserInfo {
             joinColumns = @JoinColumn(name = "user_info_id"),
             foreignKey = @ForeignKey(name = "FK_USER_DIET_TYPES"),
             indexes = @Index(name = "IDX_USER_DIET_TYPES", columnList = "user_info_id"))
-    @Column(name = "diet_type")
+    @Column(name = "diet_type",length = 30)
     List<DietType> dietTypes;
-
-
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "account_id")

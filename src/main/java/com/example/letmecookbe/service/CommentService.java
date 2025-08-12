@@ -2,17 +2,14 @@ package com.example.letmecookbe.service;
 
 import com.example.letmecookbe.dto.request.CommentRequest;
 import com.example.letmecookbe.dto.response.CommentResponse;
-import com.example.letmecookbe.entity.Account;
-import com.example.letmecookbe.entity.Comment;
-import com.example.letmecookbe.entity.Recipe;
+import com.example.letmecookbe.entity.*;
+import com.example.letmecookbe.enums.NotificationType;
 import com.example.letmecookbe.exception.AppException;
 import com.example.letmecookbe.exception.ErrorCode;
 import com.example.letmecookbe.mapper.CommentMapper;
-import com.example.letmecookbe.repository.AccountRepository;
-import com.example.letmecookbe.repository.CommentRepository;
-import com.example.letmecookbe.repository.RecipeRepository;
-import com.example.letmecookbe.repository.ReportRepository; // THÊM IMPORT NÀY
+import com.example.letmecookbe.repository.*;
 import com.example.letmecookbe.enums.ReportType; // THÊM IMPORT NÀY (giả sử bạn có enum ReportType)
+import jakarta.transaction.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -27,6 +24,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Optional;
+
 import org.springframework.data.jpa.domain.Specification;
 import jakarta.persistence.criteria.Predicate;
 
@@ -34,12 +33,22 @@ import jakarta.persistence.criteria.Predicate;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class CommentService {
-
+    NotificationService notificationService;
     CommentRepository commentRepository;
     CommentMapper commentMapper;
     AccountRepository accountRepository;
     RecipeRepository recipeRepository;
+    UserInfoRepository userInfoRepository;
+    LikeCommentRepository likedCommentRepository;
     private final ReportRepository reportRepository; // THÊM DÒNG NÀY ĐỂ INJECT ReportRepository
+
+    private String getAccountIdFromContext() {
+        var context = SecurityContextHolder.getContext();
+        String email = context.getAuthentication().getName();
+        Account account = accountRepository.findAccountByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
+        return account.getId();
+    }
 
     // --- 1. Tạo Comment ---
     @PreAuthorize("hasAuthority('CREATE_COMMENT')")
@@ -47,19 +56,59 @@ public class CommentService {
         var context = SecurityContextHolder.getContext();
         String userEmail = context.getAuthentication().getName();
 
-        Account account = accountRepository.findAccountByEmail(userEmail)
+        Account commenter = accountRepository.findAccountByEmail(userEmail)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
         Recipe recipe = recipeRepository.findById(recipeId)
                 .orElseThrow(() -> new AppException(ErrorCode.RECIPE_NOT_FOUND));
+        UserInfo info = userInfoRepository.findByEmail(commenter.getEmail());
 
         Comment comment = commentMapper.toComment(request);
-        comment.setAccount(account);
+        comment.setAccount(commenter);
         comment.setRecipe(recipe);
+        comment.setUserInfo(info);
         comment.setStatus(CommentStatus.APPROVED);
         comment = commentRepository.save(comment);
+
+        // ✅ Gửi thông báo đến chủ bài viết
+        Account recipeOwner = recipe.getAccount();
+
+// ✅ Gửi thông báo cho chủ công thức (nếu không phải là người bình luận)
+        if (!recipeOwner.getId().equals(commenter.getId())) {
+            String title = "💬 Có bình luận mới";
+            String content = commenter.getUsername() + " vừa bình luận công thức của bạn: " + recipe.getTitle();
+
+            notificationService.createTypedNotification(
+                    commenter,
+                    recipeOwner,
+                    NotificationType.COMMENT,
+                    title,
+                    content
+            );
+        }
+
+// ✅ Gửi thông báo đến tất cả Admin, trừ:
+// - người đã nhận rồi (chủ công thức)
+// - người bình luận (self-comment không cần)
+        List<Account> adminAccounts = accountRepository.findAllByRoles_Name("ADMIN");
+        for (Account admin : adminAccounts) {
+            if (admin.getId().equals(recipeOwner.getId()) || admin.getId().equals(commenter.getId())) {
+                continue; // ❌ bỏ qua nếu trùng người nhận
+            }
+            String title = "📢 Bình luận mới vừa được đăng";
+            String content = "Người dùng " + commenter.getUsername() + " đã bình luận công thức: " + recipe.getTitle();
+
+            notificationService.createTypedNotification(
+                    commenter,
+                    admin,
+                    NotificationType.COMMENT,
+                    title,
+                    content
+            );
+        }
         return commentMapper.toCommentResponse(comment);
     }
+
 
     // --- 2. Chỉnh sửa Comment ---
     @PreAuthorize("hasAuthority('UPDATE_COMMENT')")
@@ -84,11 +133,23 @@ public class CommentService {
     }
 
     // --- 3. Xóa Comment ---
-    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    @PreAuthorize("hasAuthority('DELETE_COMMENT')")
     public void deleteComment(String commentId) {
+        LikeComment likeComment = likedCommentRepository.findByCommentId(commentId);
+        likedCommentRepository.delete(likeComment);
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMMENT_NOT_EXIST));
         commentRepository.delete(comment);
+    }
+
+    @PreAuthorize("hasAuthority('GET_COMMENT_BY_ACCOUNT_ID')")
+    public Page<CommentResponse> getCommentsByAccountId(Pageable pageable) {
+        Page<Comment> comments = commentRepository.findByAccountId(getAccountIdFromContext(), pageable);
+        if (comments.isEmpty()) {
+            throw new AppException(ErrorCode.LIST_EMPTY);
+        }
+        return comments.map(commentMapper::toCommentResponse);
     }
 
 
@@ -112,7 +173,7 @@ public class CommentService {
     }
 
     // --- 6. Xem tất cả Comment (có phân trang) ---
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GET_ALL_COMMENT')")
     public Page<CommentResponse> getAllComments(Pageable pageable,
                                                 String searchTerm,
                                                 String recipeId,
@@ -189,5 +250,12 @@ public class CommentService {
     public long getTotalCommentReportsFromReportEntity() {
         // Đảm bảo ReportType.COMMENT là giá trị enum chính xác trong ReportType của bạn
         return reportRepository.countByReportType(ReportType.REPORT_COMMENT);
+    }
+
+    @PreAuthorize("hasAuthority('COUNT_COMMENT_BY_ACCOUNT')")
+    public int countCommentAccount(){
+        Account commenter = accountRepository.findById(getAccountIdFromContext())
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        return commentRepository.countCommentsByAccountId(getAccountIdFromContext());
     }
 }

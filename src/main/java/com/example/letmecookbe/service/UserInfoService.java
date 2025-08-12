@@ -9,6 +9,7 @@ import com.example.letmecookbe.entity.Account;
 import com.example.letmecookbe.entity.Role;
 import com.example.letmecookbe.entity.UserInfo;
 import com.example.letmecookbe.enums.AccountStatus;
+import com.example.letmecookbe.enums.NotificationType;
 import com.example.letmecookbe.exception.AppException;
 import com.example.letmecookbe.exception.ErrorCode;
 import com.example.letmecookbe.mapper.UserInfoMapper;
@@ -26,6 +27,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.HashSet;
@@ -44,6 +46,7 @@ public class UserInfoService {
     RoleRepository roleRepository;
     TempAccountStorage tempAccountStorage;
     FileStorageService fileStorageService;
+    NotificationService notificationService;
 
     public UserInfoResponse createUserInfo(String accountId, UserInfoCreationRequest request) {
         Account account = accountRepository.findById(accountId)
@@ -80,13 +83,42 @@ public class UserInfoService {
         UserInfo savedUserInfo = userInfoRepository.save(userInfo);
 
         log.info("✅ UserInfo created successfully for account: {}", account.getEmail());
+        // Gửi cho user mới
+        notificationService.createTypedNotification(
+                null,                // từ hệ thống
+                account,             // người nhận
+                NotificationType.PRIVATE,
+                "🎉 Chào mừng bạn đến với LetMeCook!",
+                "Cảm ơn bạn đã đăng ký. Bắt đầu chia sẻ công thức nấu ăn yêu thích ngay nhé! 👩‍🍳🍳"
+        );
+
+// Gửi cho tất cả admin
+        List<Account> adminAccounts = accountRepository.findAllByRoles_Name("ADMIN");
+        for (Account admin : adminAccounts) {
+            notificationService.createTypedNotification(
+                    account, // người gửi là user mới đăng ký
+                    admin,
+                    NotificationType.PRIVATE,
+                    "👤 Người dùng mới vừa đăng ký",
+                    "Người dùng " + account.getEmail() + " vừa hoàn tất đăng ký tài khoản."
+            );
+        }
+
         return userInfoMapper.toUserInfoResponse(savedUserInfo);
     }
 
-    @PreAuthorize("hasRole('USER')")
+    @Transactional
+    @PreAuthorize("hasAuthority('UPDATE_USER_INFO')")
     public UserInfoResponse updateUserInfo(String id, UserInfoUpdateRequest request) {
+        log.info("🔥 Starting UserInfo update for ID: {}", id);
+        log.info("📊 Update request data: {}", request);
+
         UserInfo userInfo = userInfoRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_INFO_NOT_FOUND));
+
+        log.info("📋 BEFORE UPDATE: sex={}, age={}, height={}, weight={}, dietTypes={}",
+                userInfo.getSex(), userInfo.getAge(), userInfo.getHeight(),
+                userInfo.getWeight(), userInfo.getDietTypes());
 
         String accountId = getAccountIdFromContext();
 
@@ -94,9 +126,49 @@ public class UserInfoService {
             throw new AppException(ErrorCode.USER_INFO_NOT_FOUND);
         }
 
-        userInfoMapper.updateUserInfo(request, userInfo);
-        UserInfo updatedUserInfo = userInfoRepository.save(userInfo);
-        return userInfoMapper.toUserInfoResponse(updatedUserInfo);
+        // ✅ EXPLICIT UPDATE instead of mapper
+        if (request.getSex() != null) {
+            userInfo.setSex(request.getSex());
+            log.info("🔄 Updated sex: {}", request.getSex());
+        }
+        if (request.getAge() > 0) {
+            userInfo.setAge(request.getAge());
+            log.info("🔄 Updated age: {}", request.getAge());
+        }
+        if (request.getHeight() > 0) {
+            userInfo.setHeight(request.getHeight());
+            log.info("🔄 Updated height: {}", request.getHeight());
+        }
+        if (request.getWeight() > 0) {
+            userInfo.setWeight(request.getWeight());
+            log.info("🔄 Updated weight: {}", request.getWeight());
+        }
+        if (request.getDietTypes() != null && !request.getDietTypes().isEmpty()) {
+            userInfo.setDietTypes(request.getDietTypes());
+            log.info("🔄 Updated dietTypes: {}", request.getDietTypes());
+        }
+
+        log.info("📝 AFTER MAPPING: sex={}, age={}, height={}, weight={}, dietTypes={}",
+                userInfo.getSex(), userInfo.getAge(), userInfo.getHeight(),
+                userInfo.getWeight(), userInfo.getDietTypes());
+
+        log.info("💾 Saving to database...");
+        UserInfo savedUserInfo = userInfoRepository.save(userInfo);
+
+        log.info("✅ SAVED TO DB: sex={}, age={}, height={}, weight={}, dietTypes={}",
+                savedUserInfo.getSex(), savedUserInfo.getAge(), savedUserInfo.getHeight(),
+                savedUserInfo.getWeight(), savedUserInfo.getDietTypes());
+
+        // ✅ VERIFY by re-fetching
+        UserInfo verifyUserInfo = userInfoRepository.findById(id).orElse(null);
+        log.info("🔍 VERIFY FROM DB: sex={}, age={}, height={}, weight={}, dietTypes={}",
+                verifyUserInfo.getSex(), verifyUserInfo.getAge(), verifyUserInfo.getHeight(),
+                verifyUserInfo.getWeight(), verifyUserInfo.getDietTypes());
+
+        UserInfoResponse response = userInfoMapper.toUserInfoResponse(savedUserInfo);
+        log.info("📤 Final response: {}", response);
+
+        return response;
     }
 
     @PreAuthorize("hasRole('ADMIN')")
@@ -105,7 +177,7 @@ public class UserInfoService {
         return userInfos.map(userInfoMapper::toUserInfoResponse);
     }
 
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasAuthority('GET_USER_INFO_BY_ID')")
     public UserInfoResponse getUserInfo() {
         String accountId = getAccountIdFromContext();
         UserInfo userInfo = userInfoRepository.findByAccountId(accountId)
@@ -113,7 +185,7 @@ public class UserInfoService {
         return userInfoMapper.toUserInfoResponse(userInfo);
     }
 
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasAuthority('UPLOAD_AVATAR')")
     public UserInfoResponse uploadAvatar(MultipartFile avatar) {
         String accountId = getAccountIdFromContext();
         UserInfo userInfo = userInfoRepository.findByAccountId(accountId)
@@ -126,7 +198,7 @@ public class UserInfoService {
         return userInfoMapper.toUserInfoResponse(updatedUserInfo);
     }
 
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasAuthority('DELETE_AVATAR')")
     public UserInfoResponse deleteAvatar() {
         String accountId = getAccountIdFromContext();
         UserInfo userInfo = userInfoRepository.findByAccountId(accountId)
@@ -162,5 +234,13 @@ public class UserInfoService {
         Account account = accountRepository.findAccountByEmail(email)
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
         return account.getId();
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    public void deleteUserInfo(String id) {
+        UserInfo userInfo = userInfoRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_INFO_NOT_FOUND));
+        userInfoRepository.delete(userInfo);
+        log.info("✅ UserInfo with ID [{}] has been deleted successfully", id);
     }
 }

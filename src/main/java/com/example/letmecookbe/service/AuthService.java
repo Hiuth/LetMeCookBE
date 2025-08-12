@@ -128,16 +128,19 @@ public class AuthService {
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS512);
 
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
-                .subject(account.getId()) // ✅ USE ACCOUNT ID instead of email
+                .subject(account.getEmail())
+                .claim("id", account.getId().toString())
+                .claim("username", account.getUsername())   // ✅ Giữ dòng này
                 .issuer("letmecook.com")
                 .issueTime(new Date())
                 .expirationTime(new Date(
-                        Instant.now().plus(VALID_DURATION, ChronoUnit.SECONDS).toEpochMilli()
+                        Instant.now().plus(VALID_DURATION, ChronoUnit.SECONDS).toEpochMilli() // ✅ Bỏ isRefresh
                 ))
                 .jwtID(UUID.randomUUID().toString())
-                .claim("email", account.getEmail()) // ✅ Email as claim
-                .claim("scope", "SETUP") // ✅ Setup scope
+                .claim("scope", "SETUP") // ✅ scope cứng
                 .build();
+
+
 
         Payload payload = new Payload(jwtClaimsSet.toJSONObject());
         JWSObject jwsObject = new JWSObject(header, payload);
@@ -150,6 +153,8 @@ public class AuthService {
             throw new RuntimeException(e);
         }
     }
+
+
 
     public AuthResponse authenticate(AuthRequest request) {
         String email = request.getEmail().trim();
@@ -322,6 +327,8 @@ public class AuthService {
 
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
                 .subject(account.getEmail())
+                .claim("id", account.getId().toString())
+                .claim("username", account.getUsername())
                 .issuer("letmecook.com")
                 .issueTime(new Date())
                 .expirationTime(new Date(

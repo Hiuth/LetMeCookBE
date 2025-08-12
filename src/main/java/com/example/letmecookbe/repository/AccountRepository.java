@@ -14,8 +14,8 @@ public interface AccountRepository extends JpaRepository<Account, String> {
     boolean existsAccountByEmail(String email);
     Optional<Account> findAccountByEmail(String email);
     Optional<Account> findByUsername(String username);
-
     @Query("SELECT a FROM Account a WHERE a.email LIKE %:keyword%")
-
     List<Account> searchByEmail(String keyword);
+    @Query("SELECT a FROM Account a JOIN a.roles r WHERE r.name = :roleName")
+    List<Account> findAllByRoles_Name(String roleName);
 }

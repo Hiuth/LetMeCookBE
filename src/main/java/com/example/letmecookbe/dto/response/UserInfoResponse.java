@@ -22,7 +22,6 @@ public class UserInfoResponse {
     int height;
     int weight;
     int age;
-    LocalDate dob;
     String avatar;
     List<DietType> dietTypes;
     String accountId;

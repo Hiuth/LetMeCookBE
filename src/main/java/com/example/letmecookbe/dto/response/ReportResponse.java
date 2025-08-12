@@ -18,7 +18,7 @@ public class ReportResponse {
     // Thông tin người báo cáo
     String reporterAccountUsername;
     String reporterAccountEmail;
-
+    String description;
     // THÊM CÁC TRƯỜNG NÀY ĐỂ LƯU THÔNG TIN CỦA NGƯỜI BỊ BÁO CÁO
     String reportedAccountUsername; // Tên người bị báo cáo
     String reportedAccountEmail;    // Email người bị báo cáo

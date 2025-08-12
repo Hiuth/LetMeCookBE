@@ -106,6 +106,22 @@ public class RecipeController {
         return response;
     }
 
+    @GetMapping("/getRecipeByAccountUseForAdmin/{id}")
+    public ApiResponse<Integer> getRecipeByAccountUseForAdmin(@PathVariable String id){
+        ApiResponse<Integer> response = new ApiResponse<>();
+        response.setMessage("Get all Recipe by Account: ");
+        response.setResult(recipeService.getRecipeByAccountIdUseForAdmin(id));
+        return response;
+    }
+
+    @GetMapping("/getRecipeById/{id}")
+    public ApiResponse<RecipeResponse> getRecipeById(@PathVariable String id){
+        ApiResponse<RecipeResponse> response = new ApiResponse<>();
+        response.setMessage("Get Recipe by ID");
+        response.setResult(recipeService.getRecipeById(id));
+        return response;
+    }
+
     @PostMapping("/changeStatus/{id}")
     public ApiResponse<RecipeResponse> changeStatus(@PathVariable String id){
         ApiResponse<RecipeResponse> response = new ApiResponse<>();
@@ -209,6 +225,30 @@ public class RecipeController {
         ApiResponse<Integer> response = new ApiResponse<>();
         response.setMessage("Get Not Approved Recipe Count");
         response.setResult(recipeService.countNotApprovedRecipes());
+        return response;
+    }
+
+    @GetMapping("/trendingRecipe")
+    public ApiResponse<List<RecipeResponse>> getTrendingRecipe(){
+        ApiResponse<List<RecipeResponse>> response = new ApiResponse<>();
+        response.setMessage("Get Trending Recipe");
+        response.setResult(recipeService.getTrendingRecipes());
+        return response;
+    }
+
+    @GetMapping("/newRecipeInMonth")
+    public ApiResponse<List<RecipeResponse>> getNewRecipeInMonth(){
+        ApiResponse<List<RecipeResponse>> response = new ApiResponse<>();
+        response.setMessage("Get New Recipe In Month");
+        response.setResult(recipeService.getNewRecipeInMonth());
+        return response;
+    }
+
+    @GetMapping("/getFavouriteRecipeByAccount")
+    public ApiResponse<List<RecipeResponse>> getFavouriteRecipeByAccount(){
+        ApiResponse<List<RecipeResponse>> response = new ApiResponse<>();
+        response.setMessage("Get Favourite Recipe By Account");
+        response.setResult(recipeService.getFavouriteRecipeByAccountId());
         return response;
     }
 }

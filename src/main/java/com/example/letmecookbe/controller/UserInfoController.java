@@ -35,7 +35,6 @@ public class UserInfoController {
                 .build();
     }
 
-
     @PutMapping("/{id}")
     public ApiResponse<UserInfoResponse> updateUserInfo(@PathVariable String id, @Valid @RequestBody UserInfoUpdateRequest request) {
         UserInfoResponse result = userInfoService.updateUserInfo(id, request);
@@ -81,6 +80,14 @@ public class UserInfoController {
         List<UsernameResponse> result = userInfoService.searchByUsername(keyword);
         return ApiResponse.<List<UsernameResponse>>builder()
                 .result(result)
+                .build();
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<String> deleteUserInfo(@PathVariable String id) {
+        userInfoService.deleteUserInfo(id);
+        return ApiResponse.<String>builder()
+                .result("User info with id [" + id + "] has been deleted")
                 .build();
     }
 }

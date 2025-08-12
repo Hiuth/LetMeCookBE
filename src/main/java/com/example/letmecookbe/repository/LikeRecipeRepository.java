@@ -15,4 +15,6 @@ public interface LikeRecipeRepository extends JpaRepository<LikeRecipe, String> 
 
     List<LikeRecipe> getAllLikeRecipeByAccountIdAndRecipeId(String accountId, String recipeId);
 
+    void deleteByRecipeId(String recipeId);
+
 }

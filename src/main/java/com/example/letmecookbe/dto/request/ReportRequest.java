@@ -19,7 +19,6 @@ public class ReportRequest {
     private ReportType reportType;
     @NotBlank(message = "ID của đối tượng báo cáo không được để trống")
     private String reportedItemId;
-    @NotBlank(message = "Lý do báo cáo không được để trống")
     @Size(max = 500, message = "Lý do báo cáo không được vượt quá 500 ký tự")
     private String reason;
     private String description;

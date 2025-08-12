@@ -20,6 +20,7 @@ import java.text.ParseException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.UUID;
 
 @Component
 public class CustomJwtDecoder implements JwtDecoder {
@@ -36,7 +37,6 @@ public class CustomJwtDecoder implements JwtDecoder {
 
     @Override
     public Jwt decode(String token) throws JwtException {
-
         try {
             var response = authService.introspect(IntrospectRequest.builder()
                     .token(token)
@@ -58,10 +58,21 @@ public class CustomJwtDecoder implements JwtDecoder {
 
         Jwt jwt = nimbusJwtDecoder.decode(token);
 
-        // Lấy email từ claim "sub" (đồng bộ với AuthService)
-        String email = jwt.getClaim("sub").toString();
-        Account account = accountRepository.findAccountByEmail(email)
-                .orElseThrow(() -> new JwtException("Account not found"));
+        // ✅ Xử lý tương thích cả token cũ (sub là email) và token mới (claim "id")
+
+        Object idClaim = jwt.getClaim("id");
+        Account account;
+
+        if (idClaim != null) {
+            String accountId = idClaim.toString(); // 👈 Vì id là String, không cần UUID.fromString
+            account = accountRepository.findById(accountId)
+                    .orElseThrow(() -> new JwtException("Account ID not found"));
+        } else {
+            String email = jwt.getSubject();
+            account = accountRepository.findAccountByEmail(email)
+                    .orElseThrow(() -> new JwtException("Account email not found"));
+        }
+
 
         if (account.getStatus() == AccountStatus.BANNED) {
             if (account.getBanEndDate() != null) {
@@ -74,11 +85,12 @@ public class CustomJwtDecoder implements JwtDecoder {
                     throw new JwtException("Tài khoản bị ban " + daysRemaining + " ngày");
                 }
             } else {
-                // If banEndDate is null, treat as not banned
                 account.setStatus(AccountStatus.ACTIVE);
                 accountRepository.save(account);
             }
         }
+
         return jwt;
     }
+
 }

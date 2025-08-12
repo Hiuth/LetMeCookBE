@@ -19,13 +19,5 @@ public class UserInfoUpdateRequest {
     int weight;
     String sex;
     int age;
-    @Builder.Default
-    List<DietType> dietTypesToAdd = new ArrayList<>();
-    @Builder.Default
-    List<DietType> dietTypesToRemove = new ArrayList<>();
-
-    @AssertTrue(message = "dietTypesToAdd and dietTypesToRemove must not contain the same values")
-    private boolean isValidDietTypes() {
-        return Collections.disjoint(dietTypesToAdd, dietTypesToRemove);
-    }
+    List<DietType> dietTypes;
 }

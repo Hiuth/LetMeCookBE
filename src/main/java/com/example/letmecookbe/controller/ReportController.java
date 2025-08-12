@@ -57,7 +57,25 @@ public class ReportController {
                         .build()
         );
     }
+    // Thêm endpoint này vào ReportController.java
+    @PostMapping(value = "/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<ApiResponse<ReportResponse>> createReportJson(
+            @RequestBody @Valid ReportRequest request
+    ) {
+        log.info("Received JSON request to create a report: {}", request);
 
+        // Gọi cùng một service method như endpoint multipart
+        ReportResponse response = reportService.createReport(request);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                ApiResponse.<ReportResponse>builder()
+                        .code(HttpStatus.CREATED.value())
+                        .message("Báo cáo đã được gửi thành công.")
+                        .result(response)
+                        .build()
+        );
+    }
     /**
      * API: Xem tất cả các báo cáo (Admin) - Đã thêm phân trang
      * GET /reports?status={status}&page={page}&size={size}&sort={sort}

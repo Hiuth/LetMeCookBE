@@ -19,4 +19,6 @@ public interface FavouriteRecipeRepository extends JpaRepository<FavouriteRecipe
 
     void deleteByRecipeIdAndAccountId(String recipeId, String accountId);
 
+    void deleteByRecipeId(String recipeId);
+
 }

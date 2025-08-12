@@ -4,8 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 import java.time.LocalDateTime;
-import lombok.Getter;
-import lombok.Setter;
+
 @Entity
 @Data
 @Builder
@@ -25,9 +24,15 @@ public class Comment {
     @JoinColumn(name = "recipe_id", referencedColumnName = "id") // RecipeID là khóa ngoại tới Recipe
     Recipe recipe;
     LocalDateTime createdAt;
+    int likes;
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false) // Đảm bảo cột status không null
     CommentStatus status;
+
+    @ManyToOne
+    @JoinColumn(name = "userinfo_id", referencedColumnName = "id")
+    UserInfo userInfo;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

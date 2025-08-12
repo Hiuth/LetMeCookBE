@@ -1,11 +1,13 @@
 package com.example.letmecookbe.service;
 
+import com.example.letmecookbe.dto.request.NotificationRequest;
 import com.example.letmecookbe.dto.request.RecipeCreationRequest;
 import com.example.letmecookbe.dto.request.RecipeUpdateRequest;
 import com.example.letmecookbe.dto.response.RecipeResponse;
 import com.example.letmecookbe.entity.Account;
 import com.example.letmecookbe.entity.Recipe;
 import com.example.letmecookbe.entity.SubCategory;
+import com.example.letmecookbe.enums.NotificationType;
 import com.example.letmecookbe.enums.RecipeStatus;
 import com.example.letmecookbe.exception.AppException;
 import com.example.letmecookbe.exception.ErrorCode;
@@ -19,12 +21,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,7 +39,7 @@ public class RecipeService {
     SubCategoryRepository subCategoryRepository;
     AccountRepository accountRepository;
     RecipeDeletionService recipeDeletionService;
-
+    NotificationService notificationService;
     private final FileStorageService fileStorageService;
 
     private String getAccountIdFromContext() {
@@ -49,29 +51,59 @@ public class RecipeService {
     }
 
     @PreAuthorize("hasAuthority('CREATE_RECIPE')")
-    public RecipeResponse createRecipe(String subCategoryId, RecipeCreationRequest request, MultipartFile file){
-        SubCategory subCategory = subCategoryRepository.findById(subCategoryId).orElseThrow(
-                () -> new AppException(ErrorCode.SUB_CATEGORY_NOT_EXIST)
-        );
-        Account account = accountRepository.findById(getAccountIdFromContext()).orElseThrow(
-                ()->new RuntimeException("Account not found")
-        );
+    public RecipeResponse createRecipe(String subCategoryId, RecipeCreationRequest request, MultipartFile file) {
+        SubCategory subCategory = subCategoryRepository.findById(subCategoryId)
+                .orElseThrow(() -> new AppException(ErrorCode.SUB_CATEGORY_NOT_EXIST));
+
+        Account account = accountRepository.findById(getAccountIdFromContext())
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
         Recipe recipe = recipeMapper.toRecipe(request);
         String recipeImg = fileStorageService.uploadFile(file);
         recipe.setImg(recipeImg);
         recipe.setSubCategory(subCategory);
         recipe.setAccount(account);
         recipe.setStatus(String.valueOf(RecipeStatus.PENDING));
+
         Recipe savedRecipe = RecipeRepository.save(recipe);
+
+        // ✅ Gửi thông báo cho người gửi
+        notificationService.createTypedNotification(
+                null,
+                account,
+                NotificationType.NEW_RECIPE,
+                "📝 Recipe đang chờ duyệt",
+                "Công thức \"" + recipe.getTitle() + "\" của bạn đã được gửi và đang chờ xét duyệt."
+        );
+
+
+// Gửi cho các admin khác, trừ người gửi recipe
+        List<Account> admins = accountRepository.findAllByRoles_Name("ADMIN");
+        for (Account admin : admins) {
+            if (admin.getId().equals(account.getId())) {
+                continue; // Bỏ qua nếu admin là người tạo công thức
+            }
+
+            notificationService.createTypedNotification(
+                    account,
+                    admin,
+                    NotificationType.NEW_RECIPE,
+                    "🆕 Công thức mới đang chờ duyệt",
+                    "Người dùng " + account.getUsername() +
+                            " vừa gửi công thức: \"" + recipe.getTitle() + "\" cần duyệt."
+            );
+        }
+
+
         return recipeMapper.toRecipeResponse(savedRecipe);
     }
+
 
     @PreAuthorize("hasAuthority('UPDATE_RECIPE')")
     public RecipeResponse updateRecipe(String id, RecipeUpdateRequest updateRequest, MultipartFile file){
         Recipe recipe = RecipeRepository.findById(id).orElseThrow(
                 () -> new AppException(ErrorCode.RECIPE_NOT_FOUND)
         );
-
 
         if(!updateRequest.getTitle().isBlank())
             recipe.setTitle(updateRequest.getTitle());
@@ -111,7 +143,7 @@ public class RecipeService {
         return recipePage.map(recipeMapper::toRecipeResponse);
     }
 
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasAuthority('COUNT_REICPE_BY_ACCOUNT')")
     public List<RecipeResponse> getRecipeByAccountId(){
         List<Recipe> accountRecipes = RecipeRepository.findRecipeByAccountId(getAccountIdFromContext());
         if (accountRecipes.isEmpty()) {
@@ -121,6 +153,27 @@ public class RecipeService {
                 .map(recipeMapper::toRecipeResponse)
                 .collect(Collectors.toList());
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    public int getRecipeByAccountIdUseForAdmin(String accountId){
+        if (!accountRepository.existsById(accountId)) {
+            throw new AppException(ErrorCode.ACCOUNT_NOT_FOUND);
+        }
+        int count = RecipeRepository.countRecipesByAccountId(accountId);
+        if (count < 0) {
+            throw new AppException(ErrorCode.LIST_EMPTY);
+        }
+        return count;
+    }
+
+    @PreAuthorize("hasAuthority('GET_RECIPE_BY_RECIPE_ID')")
+    public RecipeResponse getRecipeById(String id){
+        Recipe recipe = RecipeRepository.findById(id).orElseThrow(
+                () -> new AppException(ErrorCode.RECIPE_NOT_FOUND)
+        );
+        return recipeMapper.toRecipeResponse(recipe);
+    }
+
 
     @PreAuthorize("hasAuthority('GET_RECIPE_BY_SUB_CATEGORY')")
     public Page<RecipeResponse> getRecipeBySubCategoryId(String id, Pageable pageable){
@@ -166,36 +219,86 @@ public class RecipeService {
 
     }
 
-
-    @PreAuthorize("hasRole('ADMIN')")
-    public RecipeResponse changeStatusToApprove(String id){
+    @PreAuthorize("hasAuthority('LIKE')")
+    public RecipeResponse Like(String id) {
         Recipe recipe = RecipeRepository.findById(id).orElseThrow(
                 () -> new AppException(ErrorCode.RECIPE_NOT_FOUND)
         );
-        recipe.setStatus(String.valueOf(RecipeStatus.APPROVED));
+
+        recipe.setTotalLikes(recipe.getTotalLikes() + 1);
         Recipe updatedRecipe = RecipeRepository.save(recipe);
         return recipeMapper.toRecipeResponse(updatedRecipe);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    public RecipeResponse changeStatusToPending(String id){
+    public RecipeResponse changeStatusToApprove(String id) {
         Recipe recipe = RecipeRepository.findById(id).orElseThrow(
                 () -> new AppException(ErrorCode.RECIPE_NOT_FOUND)
         );
-        recipe.setStatus(String.valueOf(RecipeStatus.PENDING));
+
+        recipe.setStatus(RecipeStatus.APPROVED.name());
         Recipe updatedRecipe = RecipeRepository.save(recipe);
+
+        // Gửi thông báo public khi công thức được duyệt
+        List<Account> users = accountRepository.findAll(); // tất cả người dùng
+        for (Account user : users) {
+            notificationService.createTypedNotification(
+                    null, // hoặc null nếu gửi từ hệ thống
+                    user,
+                    NotificationType.RECIPE_APPROVED,
+                    "✅ Công thức đã được duyệt",
+                    "Công thức \"" + recipe.getTitle() + "\" của " + recipe.getAccount().getUsername() + " đã được duyệt."
+            );
+        }
+
+
         return recipeMapper.toRecipeResponse(updatedRecipe);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    public RecipeResponse changeStatusToNotApproved(String id){
+    public RecipeResponse changeStatusToPending(String id) {
         Recipe recipe = RecipeRepository.findById(id).orElseThrow(
                 () -> new AppException(ErrorCode.RECIPE_NOT_FOUND)
         );
-        recipe.setStatus(String.valueOf(RecipeStatus.NOT_APPROVED));
+
+        recipe.setStatus(RecipeStatus.PENDING.name());
         Recipe updatedRecipe = RecipeRepository.save(recipe);
+
+        // Không cần thông báo công khai
+        notificationService.sendPrivateNotificationTest(
+                recipe.getAccount().getUsername(),
+                NotificationRequest.builder()
+                        .title("📤 Công thức đã được chuyển lại trạng thái chờ duyệt")
+                        .message("Công thức \"" + recipe.getTitle() + "\" của bạn đang được xét duyệt lại.")
+                        .type("NEW_RECIPE")
+                        .build()
+        );
+
         return recipeMapper.toRecipeResponse(updatedRecipe);
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    public RecipeResponse changeStatusToNotApproved(String id) {
+        Recipe recipe = RecipeRepository.findById(id).orElseThrow(
+                () -> new AppException(ErrorCode.RECIPE_NOT_FOUND)
+        );
+
+        recipe.setStatus(RecipeStatus.NOT_APPROVED.name());
+        Recipe updatedRecipe = RecipeRepository.save(recipe);
+
+        // Gửi thông báo riêng tư khi bị từ chối
+        notificationService.createTypedNotification(
+                null,
+                recipe.getAccount(),
+                NotificationType.RECIPE_REJECTED,
+                "❌ Công thức bị từ chối",
+                "Công thức \"" + recipe.getTitle() + "\" đã bị từ chối bởi quản trị viên."
+        );
+
+
+        return recipeMapper.toRecipeResponse(updatedRecipe);
+    }
+
 
     @PreAuthorize("hasAnyAuthority('TOP_5_RECIPE')")
     public List<RecipeResponse> getTop5RecipesByTotalLikes(){
@@ -218,17 +321,17 @@ public class RecipeService {
         return count;
     }
 
-    @PreAuthorize("hasAnyAuthority('COUNT_REICPE_BY_ACCOUNT')")
-    public int countRecipeByUserId(String accountId) {
-        if (!accountRepository.existsById(accountId)) {
-            throw new AppException(ErrorCode.ACCOUNT_NOT_FOUND);
-        }
-        int count = RecipeRepository.countRecipesByAccountId(accountId);
-        if (count < 0) {
-            throw new AppException(ErrorCode.LIST_EMPTY);
-        }
-        return count;
-    }
+//    @PreAuthorize("hasAnyAuthority('COUNT_REICPE_BY_ACCOUNT')")
+//    public int countRecipeByUserId(String accountId) {
+//        if (!accountRepository.existsById(accountId)) {
+//            throw new AppException(ErrorCode.ACCOUNT_NOT_FOUND);
+//        }
+//        int count = RecipeRepository.countRecipesByAccountId(accountId);
+//        if (count < 0) {
+//            throw new AppException(ErrorCode.LIST_EMPTY);
+//        }
+//        return count;
+//    }
 
     @PreAuthorize("hasAnyAuthority('COUNT_REICPE_BY_SUB_CATEGORY')")
     public int countRecipeBySubCategoryId(String subCategoryId){
@@ -283,5 +386,39 @@ public class RecipeService {
             throw new AppException(ErrorCode.LIST_EMPTY);
         }
         return count;
+    }
+
+    @PreAuthorize("hasAuthority('TRENDING_RECIPE')")
+    public List<RecipeResponse> getTrendingRecipes(){
+        LocalDateTime lastWeek = LocalDateTime.now().minusWeeks(1); //trong khoảng 2 tuần
+        List<Recipe> recipeList = RecipeRepository.findTrendingFavoriteRecipes(lastWeek);
+        return recipeList.stream()
+                .map(recipeMapper::toRecipeResponse)
+                .collect(Collectors.toList());
+    }
+
+    @PreAuthorize("hasAuthority('NEW_RECIPE_IN_MONTH')")
+    public List<RecipeResponse> getNewRecipeInMonth(){
+        long thisMonthCount = RecipeRepository.countThisMonthRecipes();
+        if(thisMonthCount > 0){
+            List<Recipe> recipeList = RecipeRepository.findThisMonthRecipes();
+            return recipeList.stream()
+                    .map(recipeMapper::toRecipeResponse)
+                    .collect(Collectors.toList());
+        }else{
+            LocalDateTime threeMonthsAgo = LocalDateTime.now().minusMonths(3);
+            List<Recipe> recipeList = RecipeRepository.findRecipesInLastMonths(threeMonthsAgo);
+            return recipeList.stream()
+                    .map(recipeMapper::toRecipeResponse)
+                    .collect(Collectors.toList());
+        }
+    }
+
+    @PreAuthorize("hasAuthority('FAVOURITE_RECIPE_BY_ACCOUNT')")
+    public List<RecipeResponse> getFavouriteRecipeByAccountId(){
+        List<Recipe> favouriteRecipes = RecipeRepository.findFavouriteRecipesByAccountId(getAccountIdFromContext());
+        return favouriteRecipes.stream()
+                .map(recipeMapper::toRecipeResponse)
+                .collect(Collectors.toList());
     }
 }

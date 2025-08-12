@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -14,7 +15,7 @@ public interface RecipeRepository extends JpaRepository<Recipe, String> {
     @Query("select c from Recipe c where c.subCategory.id = :subCategoryId")
     List<Recipe> findRecipeBySubCategoryId(String subCategoryId);
 
-    @Query("select c from Recipe c where c.title LIKE %:KeyWord% or c.subCategory.subCategoryName LIKE %:KeyWord%")
+    @Query("select c from Recipe c where c.title LIKE %:KeyWord%")
     List<Recipe> findRecipeByKeyword(String KeyWord);
 
     @Query("select c from Recipe c where c.account.id = :accountId")
@@ -55,4 +56,35 @@ public interface RecipeRepository extends JpaRepository<Recipe, String> {
 
     @Query("SELECT r FROM Recipe r WHERE r.subCategory.id = :subCategoryId AND r.status = 'APPROVED'")
     Page<Recipe> findRecipeBySubCategoryIdWithPagination(String subCategoryId, Pageable pageable);
+
+    // Lấy món ăn trending (được yêu thích nhiều trong thời gian gần đây)
+    @Query("""
+        SELECT f.recipe, COUNT(f.recipe) as favoriteCount 
+        FROM FavouriteRecipe f 
+        WHERE f.recipe.createAt >= :fromDate 
+        GROUP BY f.recipe 
+        ORDER BY favoriteCount DESC, f.recipe.totalLikes DESC LIMIT 6
+    """)
+    List<Recipe> findTrendingFavoriteRecipes(LocalDateTime fromDate);
+
+
+    // Lấy công thức mới nhất trong tháng này
+    @Query("SELECT r FROM Recipe r WHERE MONTH(r.createAt) = MONTH(CURRENT_DATE) AND YEAR(r.createAt) = YEAR(CURRENT_DATE) AND r.status = 'APPROVED' ORDER BY r.createAt DESC LIMIT 6")
+    List<Recipe> findThisMonthRecipes();
+
+    // Lấy công thức mới nhất với fallback (nếu tháng này không có thì lấy tháng trước)
+    @Query("SELECT r FROM Recipe r WHERE r.createAt >= :fallbackDate AND r.status = 'APPROVED' ORDER BY r.createAt DESC LIMIT 6")
+    List<Recipe> findRecentRecipesWithFallback( LocalDateTime fallbackDat);
+
+    // Lấy công thức mới nhất trong N tháng gần đây
+    @Query("SELECT r FROM Recipe r WHERE r.createAt >= :monthsAgo AND r.status = 'APPROVED' ORDER BY r.createAt DESC LIMIT 6")
+    List<Recipe> findRecipesInLastMonths(LocalDateTime monthsAgo);
+
+    // Kiểm tra có công thức nào trong tháng này không
+    @Query("SELECT COUNT(r) FROM Recipe r WHERE MONTH(r.createAt) = MONTH(CURRENT_DATE) AND YEAR(r.createAt) = YEAR(CURRENT_DATE) AND r.status = 'APPROVED'")
+    long countThisMonthRecipes();
+
+    @Query("SELECT f.recipe FROM FavouriteRecipe f WHERE f.account.id = :accountId")
+    List<Recipe> findFavouriteRecipesByAccountId(String accountId);
+
 }

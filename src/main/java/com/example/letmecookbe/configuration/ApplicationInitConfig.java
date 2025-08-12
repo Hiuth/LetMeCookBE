@@ -17,7 +17,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.LocalDate; // Nếu bạn có trường DOB
 import java.util.HashSet;
 
 @Configuration
@@ -74,7 +73,6 @@ public class ApplicationInitConfig {
                         .account(account) // Liên kết với tài khoản Admin vừa tạo
                         .age(0) // Giá trị mặc định
                         .sex("UNKNOWN") // Giá trị mặc định (hoặc "Other", tùy Enum của bạn)
-                        .dob(LocalDate.of(2000, 1, 1)) // Ví dụ: Ngày sinh mặc định
                         .height(170) // Giá trị mặc định
                         .weight(0) // Giá trị mặc định
                         .avatar("default_admin_avatar.png") // Có thể là URL của avatar mặc định

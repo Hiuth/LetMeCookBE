@@ -1,5 +1,5 @@
 package com.example.letmecookbe.service;
-
+import com.example.letmecookbe.enums.NotificationType;
 import com.example.letmecookbe.dto.request.ReportRequest;
 import com.example.letmecookbe.dto.request.ReportStatusUpdateRequest;
 import com.example.letmecookbe.dto.response.ReportResponse;
@@ -23,6 +23,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile; // <-- Thêm import này
@@ -31,7 +33,7 @@ import org.springframework.web.multipart.MultipartFile; // <-- Thêm import này
 @RequiredArgsConstructor
 @Slf4j
 public class ReportService {
-
+    private final NotificationService notificationService;
     private final ReportRepository reportRepository;
     private final AccountRepository accountRepository;
     private final RecipeRepository recipeRepository;
@@ -59,6 +61,7 @@ public class ReportService {
             }
             reportedAccountForEntity = recipe.getAccount();
         }
+
         // Xử lý báo cáo bình luận
         else if (request.getReportType() == ReportType.REPORT_COMMENT) {
             Comment comment = commentRepository.findById(request.getReportedItemId())
@@ -69,6 +72,7 @@ public class ReportService {
             }
             reportedAccountForEntity = comment.getAccount();
         }
+
         // Xử lý báo cáo người dùng
         else if (request.getReportType() == ReportType.REPORT_USER) {
             Account reportedUser = accountRepository.findById(request.getReportedItemId())
@@ -79,40 +83,100 @@ public class ReportService {
             }
             reportedAccountForEntity = reportedUser;
         }
-        // Xử lý trường hợp loại báo cáo không hợp lệ
+
+        // Loại báo cáo không hợp lệ
         else {
             throw new AppException(ErrorCode.INVALID_KEY);
         }
 
-        // --- Xử lý tải lên ảnh bằng chứng trở lại ---
+        // Upload ảnh bằng chứng nếu có
         String evidenceImageUrl = null;
         if (request.getEvidenceImage() != null && !request.getEvidenceImage().isEmpty()) {
             try {
                 evidenceImageUrl = fileStorageService.uploadFile(request.getEvidenceImage());
             } catch (AppException e) {
-                log.error("Failed to upload evidence image: {}", e.getMessage());
+                log.error("❌ Failed to upload evidence image: {}", e.getMessage());
                 throw e;
             } catch (Exception e) {
-                log.error("Unexpected error during file upload: {}", e.getMessage());
+                log.error("❌ Unexpected error during file upload: {}", e.getMessage());
                 throw new AppException(ErrorCode.FILE_UPLOAD_FAILED);
             }
         }
-        // ------------------------------------
 
-        // Chuyển đổi DTO sang Entity và thiết lập các trường ban đầu
+        // Tạo report
         Report report = reportMapper.toEntity(request);
         report.setReporterAccount(currentUser);
         report.setReportedAccount(reportedAccountForEntity);
         report.setStatus(ReportStatus.PENDING);
         report.setSeverity(determineSeverity(request.getReason(), request.getReportType()));
-        report.setEvidenceImageUrl(evidenceImageUrl); // <-- Set URL ảnh bằng chứng đã tải lên
+        report.setEvidenceImageUrl(evidenceImageUrl);
 
         Report savedReport = reportRepository.save(report);
-        log.info("Report created successfully for item ID: {} with type: {} by user: {}",
+        log.info("✅ Report created successfully for item ID: {} with type: {} by user: {}",
                 request.getReportedItemId(), request.getReportType(), currentUser.getEmail());
+
+        // ✅ Gửi thông báo đến ADMIN
+        List<Account> adminAccounts = accountRepository.findAllByRoles_Name("ADMIN");
+
+        String reportTypeDescription;
+        String reportedTarget = "";
+
+        switch (request.getReportType()) {
+            case REPORT_COMMENT -> {
+                reportTypeDescription = "bình luận";
+                Comment comment = commentRepository.findById(request.getReportedItemId())
+                        .orElseThrow(() -> new AppException(ErrorCode.COMMENT_NOT_EXIST));
+                reportedTarget = "bình luận của người dùng " + comment.getAccount().getUsername()
+                        + ": \"" + comment.getCommentText() + "\"";
+            }
+            case REPORT_RECIPE -> {
+                reportTypeDescription = "công thức";
+                Recipe recipe = recipeRepository.findById(request.getReportedItemId())
+                        .orElseThrow(() -> new AppException(ErrorCode.RECIPE_NOT_FOUND));
+                reportedTarget = "công thức \"" + recipe.getTitle() + "\" của " + recipe.getAccount().getUsername();
+            }
+            case REPORT_USER -> {
+                reportTypeDescription = "người dùng";
+                Account reportedUser = accountRepository.findById(request.getReportedItemId())
+                        .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                reportedTarget = "người dùng " + reportedUser.getUsername();
+            }
+            default -> reportTypeDescription = "nội dung không xác định";
+        }
+
+        String adminTitle = "🚨 Báo cáo mới từ người dùng";
+        String adminContent = "Người dùng " + currentUser.getUsername() +
+                " vừa gửi báo cáo về " + reportTypeDescription +
+                " liên quan đến " + reportedTarget +
+                " với nội dung: " + request.getReason();
+
+        for (Account admin : adminAccounts) {
+            // Không gửi thông báo cho admin nếu họ cũng là người gửi report
+            if (admin.getId().equals(currentUser.getId())) {
+                continue;
+            }
+            // Gửi riêng tư cho từng admin
+            notificationService.createTypedNotification(
+                    currentUser,
+                    admin,
+                    NotificationType.REPORT,
+                    adminTitle,
+                    adminContent
+            );
+        }
+
+// Gửi thông báo xác nhận đến người gửi (chỉ user đó nhận được)
+        notificationService.createTypedNotification(
+                null,
+                currentUser,
+                NotificationType.REPORT,
+                "📩 Báo cáo của bạn đã được gửi",
+                "Chúng tôi đã nhận được báo cáo của bạn và sẽ xử lý trong thời gian sớm nhất. Cảm ơn bạn đã đóng góp!"
+        );
 
         return reportMapper.toDto(savedReport);
     }
+
 
     /**
      * Xác định mức độ nghiêm trọng của báo cáo dựa trên lý do và loại báo cáo.
@@ -193,6 +257,30 @@ public class ReportService {
 
         Report updatedReport = reportRepository.save(existingReport);
         log.info("Report ID {} status updated to {} by admin {}", reportId, request.getNewStatus(), currentAdminAccount.getEmail());
+
+        Account reporter = existingReport.getReporterAccount();
+
+        if (reporter != null) {
+            if (ReportStatus.RESOLVED == request.getNewStatus()) {
+                log.info("📌 Sending REPORT_RESOLVED notification to {}", reporter.getEmail());
+                notificationService.createTypedNotification(
+                        null,
+                        reporter,
+                        NotificationType.REPORT_RESOLVED,
+                        "✅ Báo cáo đã được xử lý",
+                        "Báo cáo của bạn đã được xử lý bởi admin. Cảm ơn bạn đã đóng góp!"
+                );
+            } else if (ReportStatus.REJECTED == request.getNewStatus()) {
+                log.info("📌 Sending REPORT_IGNORED notification to {}", reporter.getEmail());
+                notificationService.createTypedNotification(
+                        null,
+                        reporter,
+                        NotificationType.REPORT_REJECTED,
+                        "⚠️ Báo cáo đã được xem xét",
+                        "Báo cáo của bạn đã được admin xem xét và đánh dấu bỏ qua. Cảm ơn bạn đã đóng góp!"
+                );
+            }
+        }
 
         return reportMapper.toDto(updatedReport);
     }

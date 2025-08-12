@@ -38,6 +38,7 @@ public interface ReportMapper {
     @Mapping(source = "resolvedByAdmin.username", target = "resolvedByAdminUsername")
     @Mapping(source = "resolvedByAdmin.email", target = "resolvedByAdminEmail")
     @Mapping(source = "severity", target = "severity")
+    @Mapping(source = "description", target = "description")
     @Mapping(source = "evidenceImageUrl", target = "evidenceImageUrl") // <-- ÁNH XẠ URL ẢNH
     ReportResponse toDto(Report report);
 
