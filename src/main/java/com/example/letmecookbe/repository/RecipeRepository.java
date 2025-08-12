@@ -55,6 +55,4 @@ public interface RecipeRepository extends JpaRepository<Recipe, String> {
 
     @Query("SELECT r FROM Recipe r WHERE r.subCategory.id = :subCategoryId AND r.status = 'APPROVED'")
     Page<Recipe> findRecipeBySubCategoryIdWithPagination(String subCategoryId, Pageable pageable);
-
-
 }
